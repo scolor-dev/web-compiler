@@ -25,9 +25,12 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgb(139 92 246
 .panel-tab.active { @apply border-violet-500 text-zinc-900 dark:border-violet-400 dark:text-white; }
 .error-count { @apply grid min-w-4 place-items-center rounded-full bg-rose-100 px-1 text-[9px] text-rose-600 dark:bg-rose-400/10 dark:text-rose-400; }
 .terminal-surface { @apply rounded-xl border border-zinc-200/80 bg-white shadow-sm dark:border-white/8 dark:bg-[#101014] dark:shadow-none; }
+.console-run-button { @apply flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-violet-500 px-3 text-[11px] font-bold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-40; }
+.console-caret { animation: blink 1s steps(2, start) infinite; }
 .diagnostic-card { @apply flex gap-3 rounded-xl border border-rose-200/70 bg-rose-50/70 p-3 transition hover:border-rose-300 dark:border-rose-400/10 dark:bg-rose-400/[.04] dark:hover:border-rose-400/20; }
 .loader { animation: spin .75s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes blink { 50% { opacity: .25; } }
 
 .code-editor .cm-editor { height: 100%; font-family: 'JetBrains Mono Variable', ui-monospace, monospace; font-size: 13px; background: transparent; }
 .code-editor .cm-scroller { overflow: auto; line-height: 1.75; }

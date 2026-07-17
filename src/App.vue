@@ -14,7 +14,7 @@ const systemDark = matchMedia('(prefers-color-scheme: dark)')
 const savedTheme = localStorage.getItem('local-code-studio:theme')
 const dark = ref(savedTheme ? savedTheme === 'dark' : systemDark.matches)
 const cursor = ref({ line: 1, column: 1 })
-const panel = ref<'output' | 'input'>('output')
+const panel = ref<'output' | 'input' | 'console'>('output')
 const { running, result, activeAction, run, lint, stop } = useExecution()
 
 const current = computed(() => languageMap[language.value])
@@ -31,11 +31,11 @@ const whitespaceStats = computed(() => {
 })
 
 function executeCode() {
-  panel.value = 'output'
+  if (panel.value === 'input') panel.value = 'output'
   run(language.value, code[language.value], stdin[language.value])
 }
 function lintCode() {
-  panel.value = 'output'
+  if (panel.value === 'input') panel.value = 'output'
   lint(language.value, code[language.value])
 }
 function resetCode() {
@@ -123,6 +123,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
           <div class="flex h-full items-end gap-5">
             <button type="button" class="panel-tab" :class="{ active: panel === 'output' }" @click="panel = 'output'"><IconBase name="terminal" class="size-4" />出力<span v-if="diagnostics.length" class="error-count">{{ diagnostics.length }}</span></button>
             <button type="button" class="panel-tab" :class="{ active: panel === 'input' }" @click="panel = 'input'"><IconBase name="input" class="size-4" />標準入力</button>
+            <button type="button" class="panel-tab" :class="{ active: panel === 'console' }" @click="panel = 'console'"><IconBase name="code" class="size-4" />コンソール</button>
           </div>
           <span v-if="result?.durationMs !== undefined" class="mb-4 font-mono text-[10px] text-zinc-400">{{ result.durationMs.toFixed(1) }} ms</span>
         </div>
@@ -131,6 +132,35 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
           <label for="stdin" class="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">プログラムへ渡す入力</label>
           <textarea id="stdin" v-model="stdin[language]" spellcheck="false" placeholder="1行目&#10;2行目..." class="terminal-surface min-h-40 flex-1 resize-none p-4 font-mono text-sm leading-6 outline-none focus:ring-2 focus:ring-violet-500/40" />
           <p class="mt-2 text-[11px] text-zinc-400">Cでは getchar()、Whitespaceでは入力命令、JavaScriptでは stdin 変数から参照できます。</p>
+        </div>
+
+        <div v-else-if="panel === 'console'" class="flex min-h-0 flex-1 flex-col bg-[#111114] text-zinc-200">
+          <div class="console-output min-h-0 flex-1 overflow-auto p-4 font-mono text-[13px] leading-6 sm:p-5" aria-live="polite">
+            <div class="mb-3 flex items-center justify-between gap-3 border-b border-white/8 pb-3 text-[10px] uppercase tracking-[.14em] text-zinc-500">
+              <span class="flex items-center gap-2"><span class="size-1.5 rounded-full" :class="running ? 'animate-pulse bg-violet-400' : result?.exitCode === 0 ? 'bg-emerald-400' : result ? 'bg-rose-400' : 'bg-zinc-600'" />program output</span>
+              <span v-if="result">exit {{ result.exitCode }}</span>
+            </div>
+            <div v-if="running" class="flex items-center gap-2 text-violet-300"><span class="console-caret">›</span><span>実行しています...</span></div>
+            <div v-else-if="!result" class="text-zinc-500"><span class="mr-2 text-violet-400">›</span>実行結果はここに表示されます。</div>
+            <template v-else>
+              <pre v-if="result.stdout" class="whitespace-pre-wrap text-zinc-100">{{ result.stdout }}</pre>
+              <pre v-if="result.stderr" class="whitespace-pre-wrap text-rose-400">{{ result.stderr }}</pre>
+              <p v-if="!result.stdout && !result.stderr" class="text-zinc-500">{{ result.action === 'lint' ? '分かりやすい構文上の問題は見つかりませんでした。' : '（出力はありません）' }}</p>
+              <div v-if="diagnostics.length" class="mt-4 border-t border-white/8 pt-3 text-rose-400">
+                <p v-for="(item, index) in diagnostics" :key="index"><span class="mr-2 text-rose-500">!</span>{{ current.extension }}:{{ item.line }}:{{ item.column }} {{ item.message }}</p>
+              </div>
+            </template>
+          </div>
+          <div class="console-input shrink-0 border-t border-white/10 bg-black/25 p-3 sm:p-4">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <label for="console-stdin" class="flex items-center gap-2 font-mono text-[11px] font-semibold text-zinc-300"><span class="text-violet-400">$</span> standard input</label>
+              <span class="text-[10px] text-zinc-600">次回実行時に使用</span>
+            </div>
+            <div class="flex items-end gap-2">
+              <textarea id="console-stdin" v-model="stdin[language]" rows="3" spellcheck="false" placeholder="プログラムへ渡す入力..." class="min-h-20 flex-1 resize-y rounded-lg border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs leading-5 text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-500/20" />
+              <button type="button" class="console-run-button" :disabled="running" title="この入力で実行" @click="executeCode"><IconBase name="play" class="size-3.5 fill-current" /><span class="hidden sm:inline">実行</span></button>
+            </div>
+          </div>
         </div>
 
         <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
