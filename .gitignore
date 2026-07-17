@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+
+# Rust / wasm-pack build output
+target/
+src/wasm/compiler/
+
+# Local configuration and caches
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+*.log
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
