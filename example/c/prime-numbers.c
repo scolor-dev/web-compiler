@@ -13,7 +13,7 @@ int is_prime(int number) {
   return 1;
 }
 
-int main() {
+int main(void) {
   printf("Primes: ");
   for (int number = 2; number <= 50; number++) {
     if (is_prime(number)) {

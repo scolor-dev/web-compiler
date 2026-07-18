@@ -19,6 +19,7 @@ const { running, result, activeAction, run, lint, stop } = useExecution()
 
 const current = computed(() => languageMap[language.value])
 const diagnostics = computed(() => result.value?.diagnostics ?? [])
+const hasDiagnosticErrors = computed(() => diagnostics.value.some((item) => item.severity === 'error'))
 const status = computed(() => {
   if (running.value) return { text: activeAction.value === 'lint' ? 'Lint中' : '実行中', tone: 'running' }
   if (!result.value) return { text: '準備完了', tone: 'idle' }
@@ -27,7 +28,12 @@ const status = computed(() => {
 })
 const whitespaceStats = computed(() => {
   const source = code.whitespace
-  return { spaces: [...source].filter((ch) => ch === ' ').length, tabs: [...source].filter((ch) => ch === '\t').length, lines: source.split('\n').length }
+  return {
+    spaces: [...source].filter((ch) => ch === ' ').length,
+    tabs: [...source].filter((ch) => ch === '\t').length,
+    lines: source.split('\n').length,
+    ignored: [...source].filter((ch) => ch !== ' ' && ch !== '\t' && ch !== '\n' && (/\s/u.test(ch) || ch === '\u200b')).length,
+  }
 })
 
 function executeCode() {
@@ -99,8 +105,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
         <div class="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#0d0d10]">
           <div class="flex h-9 shrink-0 items-center justify-between border-b border-zinc-100 px-4 text-[11px] dark:border-white/5">
             <div class="flex items-center gap-2 font-mono font-medium text-zinc-500 dark:text-zinc-400"><IconBase name="code" class="size-3.5" />{{ current.extension }}</div>
-            <div v-if="language === 'whitespace'" class="flex gap-2 font-mono text-[10px] text-zinc-400"><span>SPACE {{ whitespaceStats.spaces }}</span><span>TAB {{ whitespaceStats.tabs }}</span><span>LINE {{ whitespaceStats.lines }}</span></div>
+            <div v-if="language === 'whitespace'" class="flex gap-2 font-mono text-[10px] text-zinc-400"><span>· {{ whitespaceStats.spaces }}</span><span>⇥ {{ whitespaceStats.tabs }}</span><span>↵ {{ whitespaceStats.lines - 1 }}</span><span v-if="whitespaceStats.ignored" class="text-amber-500">他 {{ whitespaceStats.ignored }}</span></div>
             <span v-else class="font-mono text-zinc-400">Ln {{ cursor.line }}, Col {{ cursor.column }}</span>
+          </div>
+          <div v-if="language === 'whitespace'" class="whitespace-legend flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-100 px-4 font-mono text-[9px] whitespace-nowrap dark:border-white/5">
+            <span class="ws-legend-token"><b>·</b> ASCII Space</span><span class="ws-legend-token"><b>⇥</b> Tab</span><span class="ws-legend-token"><b>↵</b> LF</span><span class="ws-legend-token ignored" title="NBSP・全角スペース・その他のUnicode空白"><b>⍽ □ ␠</b> 他は無視</span>
+            <span class="ws-legend-stack">● Stack</span><span class="ws-legend-arithmetic">● Math</span><span class="ws-legend-heap">● Heap</span><span class="ws-legend-flow">● Flow</span><span class="ws-legend-io">● I/O</span><span class="ws-legend-number">● Number</span><span class="ws-legend-label">● Label</span>
           </div>
           <CodeEditor v-model="code[language]" :language :dark :diagnostics class="flex-1" @cursor="(line, column) => cursor = { line, column }" />
         </div>
@@ -121,7 +131,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
       <section class="flex min-h-[44dvh] min-w-0 flex-col bg-zinc-50/70 lg:min-h-0 dark:bg-[#0a0a0c]">
         <div class="flex h-14 shrink-0 items-end justify-between border-b border-zinc-200/80 px-4 dark:border-white/8">
           <div class="flex h-full items-end gap-5">
-            <button type="button" class="panel-tab" :class="{ active: panel === 'output' }" @click="panel = 'output'"><IconBase name="terminal" class="size-4" />出力<span v-if="diagnostics.length" class="error-count">{{ diagnostics.length }}</span></button>
+            <button type="button" class="panel-tab" :class="{ active: panel === 'output' }" @click="panel = 'output'"><IconBase name="terminal" class="size-4" />出力<span v-if="diagnostics.length" class="error-count" :class="{ warning: !hasDiagnosticErrors }">{{ diagnostics.length }}</span></button>
             <button type="button" class="panel-tab" :class="{ active: panel === 'input' }" @click="panel = 'input'"><IconBase name="input" class="size-4" />標準入力</button>
             <button type="button" class="panel-tab" :class="{ active: panel === 'console' }" @click="panel = 'console'"><IconBase name="code" class="size-4" />コンソール</button>
           </div>
@@ -146,8 +156,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
               <pre v-if="result.stdout" class="whitespace-pre-wrap text-zinc-100">{{ result.stdout }}</pre>
               <pre v-if="result.stderr" class="whitespace-pre-wrap text-rose-400">{{ result.stderr }}</pre>
               <p v-if="!result.stdout && !result.stderr" class="text-zinc-500">{{ result.action === 'lint' ? '分かりやすい構文上の問題は見つかりませんでした。' : '（出力はありません）' }}</p>
-              <div v-if="diagnostics.length" class="mt-4 border-t border-white/8 pt-3 text-rose-400">
-                <p v-for="(item, index) in diagnostics" :key="index"><span class="mr-2 text-rose-500">!</span>{{ current.extension }}:{{ item.line }}:{{ item.column }} {{ item.message }}</p>
+              <div v-if="diagnostics.length" class="mt-4 border-t border-white/8 pt-3">
+                <p v-for="(item, index) in diagnostics" :key="index" :class="item.severity === 'warning' ? 'text-amber-400' : 'text-rose-400'"><span class="mr-2">!</span>{{ current.extension }}:{{ item.line }}:{{ item.column }} {{ item.message }}</p>
               </div>
             </template>
           </div>
@@ -181,8 +191,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
             </div>
             <div v-else class="terminal-surface p-4 font-mono text-xs text-zinc-400">{{ result.action === 'lint' ? '分かりやすい構文上の問題は見つかりませんでした。' : '（出力はありません）' }}</div>
             <div v-if="diagnostics.length" class="mt-4 space-y-2">
-              <button v-for="(item, index) in diagnostics" :key="index" class="diagnostic-card w-full text-left" type="button">
-                <IconBase name="error" class="mt-0.5 size-4 shrink-0 text-rose-500" />
+              <button v-for="(item, index) in diagnostics" :key="index" class="diagnostic-card w-full text-left" :class="item.severity" type="button">
+                <IconBase name="error" class="mt-0.5 size-4 shrink-0" :class="item.severity === 'warning' ? 'text-amber-500' : 'text-rose-500'" />
                 <span class="min-w-0"><span class="block text-xs font-semibold text-zinc-800 dark:text-zinc-200">{{ item.message }}</span><span class="mt-1 block font-mono text-[10px] text-zinc-400">{{ current.extension }}:{{ item.line }}:{{ item.column }}</span></span>
               </button>
             </div>

@@ -5,8 +5,8 @@
 ## 対応言語
 
 - **Whitespace**: Rust/WASM製のパーサー・VMで実行
-- **C**: 学習用途のCサブセットをRust/WASMで字句解析・構文解析・評価
-- **JavaScript**: Rust/WASMで構文の事前検査を行い、専用Web Worker内で実行
+- **C**: Clang WASMでGNU C17をコンパイルし、WASI上で実行
+- **JavaScript**: Acornとeslint-scopeで静的検査し、専用Web Worker内で実行
 
 入力したコードや実行結果をサーバーへ送信しません。ビルド成果物を静的ホスティングするだけで利用できます。
 
@@ -26,7 +26,9 @@
 
 - Vue 3 + TypeScript + Vite
 - Tailwind CSS
-- Rust + wasm-bindgen + WebAssembly
+- Rust + wasm-bindgen + WebAssembly（Whitespace）
+- Clang WebAssembly + WASI（C）
+- Acorn + eslint-scope（JavaScript Lint）
 - Web Worker（UIをブロックしない実行とタイムアウト制御）
 - Vitest（フロントエンド） / cargo test（Rust）
 
@@ -38,31 +40,24 @@ src/
 ├── composables/       # エディター状態、永続化、実行制御
 ├── constants/         # 言語情報とサンプルコード
 ├── types/             # フロントエンド共通型
-├── workers/           # WASMとJavaScriptを隔離実行するWorker
+├── workers/           # C/JSツールチェーンと隔離実行Worker
 └── wasm/              # wasm-pack生成物の読み込み境界
 crates/compiler/
-├── src/c.rs           # Cサブセットのlexer/parser/interpreter
+├── src/c.rs           # 旧Cインタープリターの回帰テスト資産
 ├── src/whitespace.rs  # Whitespace parser/VM
-├── src/javascript.rs  # JavaScript事前検査
 └── src/lib.rs         # wasm-bindgen公開API
+docs/                  # 言語対応状況と設計上の制約
+example/               # 言語別の正常・エラーサンプル
 public/                # 静的アセット
 ```
 
-UIは実行エンジンを直接参照せず、型付きメッセージでWorkerと通信します。WorkerがWASMを初期化してコンパイル・実行を担当し、メインスレッドはタイムアウト時にWorkerを破棄・再生成します。
+UIは実行エンジンを直接参照せず、型付きメッセージでWorkerと通信します。WorkerがCのコンパイル、WASI実行、JavaScript実行、Rust/WASMの初期化を担当し、メインスレッドはタイムアウト時にWorkerを破棄・再生成します。
 
-## Cサブセット
+## 言語対応範囲
 
-ローカル完結かつ小さなWASMバイナリを保つため、システムCコンパイラではなく学習用インタープリターを実装します。
+実装状況、受け入れ条件、完全ローカル実行のための制約は[言語対応チェックリスト](docs/language-support-checklist.md)を参照してください。
 
-対応予定:
-
-- `int` / `char` 型の変数と整数演算
-- 関数定義・呼び出し・`return`
-- `if` / `else` / `while` / `for`
-- `printf` / `puts` / `putchar` / `getchar`
-- `//` と `/* ... */` コメント
-
-非対応の機能には、行・列付きで明示的なエラーを返します。ポインター、構造体、プリプロセッサ、外部ライブラリ、ファイル／ネットワークI/Oは対象外です。
+Cは標準ヘッダーとlibcを含むClang WASM資産を同梱するため、初回の読み込み量が大きくなります。コンパイル後のプログラムはブラウザ内のWASIで動作し、ファイルは実行ごとに破棄されるメモリ内ファイルシステムへ保存されます。
 
 ## 開発
 
@@ -101,7 +96,8 @@ npm run build
 - JavaScriptはDOMへ触れない専用Workerで実行
 - `fetch`、`XMLHttpRequest`、`WebSocket`、`importScripts`等のネットワークAPIをWorker内で無効化
 - 無限ループはメインスレッド側のタイムアウトでWorkerごと停止
-- CとWhitespaceはWASM内の命令数上限・出力量上限で停止
+- Cは30秒、JavaScriptとWhitespaceは5秒でWorkerごと停止
+- Cの標準出力・標準エラーとコンパイラ診断は各100,000バイトで省略
 - ユーザーコードをHTMLとして描画しない
 
 ## ライセンス

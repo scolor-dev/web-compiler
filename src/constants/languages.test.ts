@@ -7,7 +7,7 @@ describe('language definitions', () => {
   })
 
   it('provides runnable starter code', () => {
-    expect(languageMap.c.sample).toContain('int main()')
+    expect(languageMap.c.sample).toContain('int main(void)')
     expect(languageMap.javascript.sample).toContain('console.log')
     expect(languageMap.whitespace.sample).toMatch(/[ \t\n]+/)
     expect(languageMap.whitespace.sample.endsWith('\n\n\n')).toBe(true)

@@ -19,14 +19,14 @@ export const languages: LanguageDefinition[] = [
     label: 'C',
     extension: 'main.c',
     color: '#8b9eff',
-    description: 'Rust製Cインタープリター',
+    description: 'Clang WASM + WASI（GNU C17）',
     sample: `#include <stdio.h>
 
 int square(int value) {
   return value * value;
 }
 
-int main() {
+int main(void) {
   puts("Hello from C + WASM!");
 
   for (int i = 1; i <= 5; i++) {

@@ -2,6 +2,7 @@ import { onBeforeUnmount, ref } from 'vue'
 import type { ExecuteRequest, ExecuteResult, ExecutionAction, LanguageId, WorkerResponse } from '../types/execution'
 
 const TIMEOUT_MS = 5_000
+const C_TOOLCHAIN_TIMEOUT_MS = 30_000
 
 export function useExecution() {
   const running = ref(false)
@@ -37,16 +38,17 @@ export function useExecution() {
     }
     const request: ExecuteRequest = { id, action, language, code, stdin }
     worker!.postMessage(request)
+    const timeoutMs = language === 'c' ? C_TOOLCHAIN_TIMEOUT_MS : TIMEOUT_MS
     timer = setTimeout(() => {
       createWorker()
       finish({
         stdout: '',
-        stderr: `${TIMEOUT_MS / 1000}秒の実行時間制限を超えたため停止しました`,
+        stderr: `${timeoutMs / 1000}秒のコンパイル・実行時間制限を超えたため停止しました`,
         exitCode: 124,
         diagnostics: [{ severity: 'error', message: '処理時間制限を超えました', line: 1, column: 1 }],
         action,
       })
-    }, TIMEOUT_MS)
+    }, timeoutMs)
   }
 
   function stop() {
