@@ -1,4 +1,4 @@
-export type LanguageId = 'c' | 'javascript' | 'whitespace'
+export type LanguageId = 'c' | 'javascript' | 'react' | 'whitespace'
 export type ExecutionAction = 'run' | 'lint'
 
 export interface Diagnostic {
@@ -21,6 +21,7 @@ export interface ExecuteResult {
   stderr: string
   exitCode: number
   diagnostics: Diagnostic[]
+  previewHtml?: string
   durationMs?: number
   action?: ExecutionAction
 }

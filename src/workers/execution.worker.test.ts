@@ -17,4 +17,18 @@ describe('execution worker startup', () => {
     } as MessageEvent)
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ id: 1, exitCode: 0, stdout: 'ready\n' }))
   })
+
+  it('transforms and renders React JSX locally', async () => {
+    await workerScope.onmessage?.({
+      data: { id: 2, action: 'run', language: 'react', code: "import React from 'react'\nfunction App() { return <h1>Hello React</h1> }\nrender(<App />)", stdin: '' },
+    } as MessageEvent)
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ id: 2, exitCode: 0, previewHtml: '<h1>Hello React</h1>' }))
+  })
+
+  it('renders components using a global hook without an import', async () => {
+    await workerScope.onmessage?.({
+      data: { id: 3, action: 'run', language: 'react', code: 'function Counter() { const [count] = useState(2); return <b>{count}</b> }\nrender(<Counter />)', stdin: '' },
+    } as MessageEvent)
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ id: 3, exitCode: 0, previewHtml: '<b>2</b>' }))
+  })
 })

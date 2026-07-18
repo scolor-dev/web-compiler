@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type { ExecuteRequest, ExecuteResult, WorkerResponse } from '../types/execution'
+import type { ReactNode } from 'react'
 
 const workerScope = self as DedicatedWorkerGlobalScope
 let rustCompilerReady: ReturnType<typeof loadRustCompiler> | undefined
@@ -76,7 +77,7 @@ async function runJavaScript(code: string, stdin: string): Promise<ExecuteResult
       )
       const moduleRuntime = Object.freeze({ console: sandboxConsole, stdin })
       await runner(sandboxConsole, stdin, moduleRuntime, undefined, undefined, undefined, undefined, undefined)
-      return { stdout: output.join('\n') + (output.length ? '\n' : ''), stderr: errors.join('\n'), exitCode: 0, diagnostics: [] }
+      return { stdout: output.join('\n') + (output.length ? '\n' : ''), stderr: errors.join('\n'), exitCode: 0, diagnostics: analysis.diagnostics }
     } catch (error) {
       const item = error instanceof Error ? error : new Error(String(error))
       const match = item.stack?.match(/local-code-studio\.js:(\d+):(\d+)/)
@@ -87,8 +88,81 @@ async function runJavaScript(code: string, stdin: string): Promise<ExecuteResult
         stdout: output.join('\n') + (output.length ? '\n' : ''),
         stderr: `${item.name}: ${item.message}`,
         exitCode: 1,
-        diagnostics: [{ severity: 'error', message: item.message, line, column }],
+        diagnostics: [...analysis.diagnostics, { severity: 'error', message: item.message, line, column }],
       }
+    }
+  } finally {
+    for (const api of blockedApis) {
+      const descriptor = descriptors.get(api)
+      try {
+        if (descriptor) Object.defineProperty(workerScope, api, descriptor)
+        else delete (workerScope as unknown as Record<string, unknown>)[api]
+      } catch { /* the host owns this property */ }
+    }
+  }
+}
+
+async function runReact(code: string, stdin: string): Promise<ExecuteResult> {
+  const { analyzeReact, reactGlobalNames } = await import('./react-toolchain')
+  const React = await import('react')
+  const { renderToReadableStream } = await import('react-dom/server.browser')
+  const output: string[] = []
+  const errors: string[] = []
+  const print = (...values: unknown[]) => output.push(values.map((value) => serialize(value)).join(' '))
+  const printError = (...values: unknown[]) => errors.push(values.map((value) => serialize(value)).join(' '))
+  const sandboxConsole = Object.freeze({ log: print, info: print, debug: print, warn: printError, error: printError, table: (value: unknown) => output.push(formatTable(value)) })
+  const analysis = analyzeReact(code)
+
+  if (analysis.diagnostics.some((item) => item.severity === 'error')) {
+    return { stdout: '', stderr: analysis.diagnostics.map((item) => `${item.line}:${item.column} ${item.message}`).join('\n'), exitCode: 1, diagnostics: analysis.diagnostics }
+  }
+
+  let root: ReactNode | undefined
+  const render = (element: ReactNode) => { root = element }
+  const moduleRuntime = Object.freeze({ ...React, default: React, React, render, console: sandboxConsole, stdin })
+  const reactApi = React as unknown as Record<string, unknown>
+  const reactGlobalValues = reactGlobalNames.map((name) => name === 'React' ? React : reactApi[name])
+  const blockedApis = ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'WebTransport', 'importScripts'] as const
+  const descriptors = new Map<string, PropertyDescriptor | undefined>()
+  for (const api of blockedApis) {
+    descriptors.set(api, Object.getOwnPropertyDescriptor(workerScope, api))
+    try { Object.defineProperty(workerScope, api, { value: undefined, configurable: true, writable: false }) } catch { /* already unavailable */ }
+  }
+
+  try {
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<unknown>
+    const runner = new AsyncFunction(
+      'console', 'stdin', '__moduleRuntime', '__reactRuntime', 'render', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'importScripts', ...reactGlobalNames,
+      `"use strict";\nreturn await (async () => {\n${analysis.code}\n})();\n//# sourceURL=local-code-studio-react.jsx`,
+    )
+    await runner(sandboxConsole, stdin, moduleRuntime, React, render, undefined, undefined, undefined, undefined, undefined, ...reactGlobalValues)
+    if (root === undefined) {
+      const message = 'プレビューする要素を render(<App />) へ渡してください'
+      return { stdout: output.join('\n') + (output.length ? '\n' : ''), stderr: message, exitCode: 1, diagnostics: [{ severity: 'error', message, line: 1, column: 1 }] }
+    }
+
+    const renderErrors: string[] = []
+    const stream = await renderToReadableStream(root, { onError: (error) => { renderErrors.push(serialize(error)) } })
+    await stream.allReady
+    const previewHtml = await new Response(stream).text()
+    errors.push(...renderErrors)
+    return {
+      stdout: output.join('\n') + (output.length ? '\n' : ''),
+      stderr: errors.join('\n'),
+      exitCode: renderErrors.length ? 1 : 0,
+      diagnostics: [...analysis.diagnostics, ...renderErrors.map((message) => ({ severity: 'error' as const, message, line: 1, column: 1 }))],
+      previewHtml,
+    }
+  } catch (error) {
+    const item = error instanceof Error ? error : new Error(String(error))
+    const match = item.stack?.match(/local-code-studio-react\.jsx:(\d+):(\d+)/)
+    const line = Math.max(1, Number(match?.[1] ?? 5) - 4)
+    const column = Number(match?.[2] ?? 1)
+    return {
+      stdout: output.join('\n') + (output.length ? '\n' : ''),
+      stderr: `${item.name}: ${item.message}`,
+      exitCode: 1,
+      diagnostics: [...analysis.diagnostics, { severity: 'error', message: item.message, line, column }],
     }
   } finally {
     for (const api of blockedApis) {
@@ -114,6 +188,11 @@ workerScope.onmessage = async (event: MessageEvent<ExecuteRequest>) => {
       result = lintJavaScript(request.code)
     } else if (request.language === 'javascript') {
       result = await runJavaScript(request.code, request.stdin)
+    } else if (request.language === 'react' && request.action === 'lint') {
+      const { lintReact } = await import('./react-toolchain')
+      result = lintReact(request.code)
+    } else if (request.language === 'react') {
+      result = await runReact(request.code, request.stdin)
     } else {
       const { execute, lint } = await getRustCompiler()
       result = JSON.parse((request.action === 'lint' ? lint : execute)(JSON.stringify(request))) as ExecuteResult

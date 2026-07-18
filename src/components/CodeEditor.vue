@@ -411,7 +411,7 @@ function sourceLogicMarks(language: LanguageId) {
 
 function languageExtension(language: LanguageId, showLogic: boolean) {
   if (language === 'c') return [cpp(), showLogic ? sourceLogicMarks(language) : []]
-  if (language === 'javascript') return [javascript(), showLogic ? sourceLogicMarks(language) : []]
+  if (language === 'javascript' || language === 'react') return [javascript({ jsx: language === 'react' }), showLogic ? sourceLogicMarks(language) : []]
   return [whitespaceMarks(showLogic)]
 }
 

@@ -1,6 +1,7 @@
 import { commands, Exit, type Tree } from '@yowasp/clang'
 import { ConsoleStdout, File, OpenFile, PreopenDirectory, WASI } from '@bjorn3/browser_wasi_shim'
 import type { Diagnostic, ExecuteResult, ExecutionAction } from '../types/execution'
+import { cSuggestions } from './c-suggestions'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -124,6 +125,7 @@ export async function processC(action: ExecutionAction, code: string, stdin: str
   if (compiled.failure) return compiled.failure
 
   const diagnostics = parseDiagnostics(compiled.stderr)
+  diagnostics.push(...cSuggestions(code))
   if (action === 'lint') {
     return { stdout: '', stderr: compiled.stderr.trim(), exitCode: 0, diagnostics }
   }

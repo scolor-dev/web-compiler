@@ -24,13 +24,105 @@ const knownGlobals = new Set([
   'setTimeout', 'stdin', 'structuredClone', 'undefined', 'unescape',
 ])
 
-function diagnostic(message: string, node?: Node): Diagnostic {
+function diagnostic(message: string, node?: Node, severity: Diagnostic['severity'] = 'error'): Diagnostic {
   return {
-    severity: 'error',
+    severity,
     message,
     line: node?.loc?.start.line ?? 1,
     column: (node?.loc?.start.column ?? 0) + 1,
   }
+}
+
+function identifierName(node: Node | null | undefined) {
+  return node?.type === 'Identifier' ? (node as Node & { name: string }).name : undefined
+}
+
+function literalNumber(node: Node | null | undefined) {
+  const value = node?.type === 'Literal' ? (node as Node & { value: unknown }).value : undefined
+  return typeof value === 'number' && Number.isInteger(value) ? value : undefined
+}
+
+function containsArrayIndex(node: Node, arrayName: string, indexName: string): boolean {
+  if (node.type === 'MemberExpression') {
+    const object = node.object as Node
+    const property = node.property as Node
+    if (identifierName(object) === arrayName && identifierName(property) === indexName) return true
+  }
+  return childNodes(node).some((child) => containsArrayIndex(child, arrayName, indexName))
+}
+
+function suspiciousArrayDiagnostics(root: Node): Diagnostic[] {
+  const arrays = new Map<string, { length: number, node: Node }>()
+  const results: Diagnostic[] = []
+
+  const collect = (node: Node) => {
+    if (node.type === 'VariableDeclarator') {
+      const name = identifierName(node.id as Node)
+      const init = node.init as Node | null
+      const elements = init?.type === 'ArrayExpression' ? init.elements as Array<Node | null> : undefined
+      if (name && elements && elements.every(Boolean)) arrays.set(name, { length: elements.length, node })
+    }
+    for (const child of childNodes(node)) collect(child)
+  }
+  collect(root)
+
+  const visit = (node: Node) => {
+    if (node.type === 'ForStatement') {
+      const init = node.init as Node | null
+      const declaration = init?.type === 'VariableDeclaration' ? (init.declarations as Node[])?.[0] : undefined
+      const indexName = identifierName(declaration?.id as Node)
+      const start = literalNumber(declaration?.init as Node)
+      const test = node.test as Node | null
+      const operator = test?.type === 'BinaryExpression' ? (test as Node & { operator: string }).operator : undefined
+      const testedIndex = identifierName(test?.left as Node)
+      const bound = literalNumber(test?.right as Node)
+      const body = node.body as Node
+      if (indexName && testedIndex === indexName && start === 0 && bound !== undefined && (operator === '<' || operator === '<=')) {
+        const usedCount = operator === '<' ? bound : bound + 1
+        for (const [name, array] of arrays) {
+          if (usedCount >= 0 && usedCount < array.length && containsArrayIndex(body, name, indexName)) {
+            results.push(diagnostic(
+              `配列「${name}」には${array.length}件ありますが、このループは先頭${usedCount}件だけを使用します。全件なら「${indexName} < ${name}.length」ではありませんか？`,
+              test ?? node,
+              'warning',
+            ))
+          }
+        }
+      }
+    }
+
+    if (node.type === 'CallExpression') {
+      const reduceMember = node.callee as Node
+      const reduceName = reduceMember?.type === 'MemberExpression' ? identifierName(reduceMember.property as Node) : undefined
+      const sliceCall = reduceMember?.type === 'MemberExpression' ? reduceMember.object as Node : undefined
+      const sliceMember = sliceCall?.type === 'CallExpression' ? sliceCall.callee as Node : undefined
+      const sliceName = sliceMember?.type === 'MemberExpression' ? identifierName(sliceMember.property as Node) : undefined
+      const arrayName = sliceMember?.type === 'MemberExpression' ? identifierName(sliceMember.object as Node) : undefined
+      if (reduceName === 'reduce' && sliceName === 'slice' && arrayName && arrays.has(arrayName)) {
+        const args = sliceCall!.arguments as Node[]
+        const start = args.length > 1 ? literalNumber(args[0]) : 0
+        const end = literalNumber(args[1])
+        const length = arrays.get(arrayName)!.length
+        if ((start === 0 || start === undefined) && end !== undefined && end >= 0 && end < length) {
+          results.push(diagnostic(
+            `配列「${arrayName}」には${length}件ありますが、集計対象は先頭${end}件です。全件の集計なら slice(0, ${end}) は不要ではありませんか？`,
+            args[1] ?? node,
+            'warning',
+          ))
+        }
+      }
+    }
+
+    if (node.type === 'IfStatement' || node.type === 'WhileStatement') {
+      const test = node.test as Node
+      if (test?.type === 'AssignmentExpression' && (test as Node & { operator: string }).operator === '=') {
+        results.push(diagnostic('条件式の中で代入しています。比較する意図なら「===」ではありませんか？', test, 'warning'))
+      }
+    }
+    for (const child of childNodes(node)) visit(child)
+  }
+  visit(root)
+  return results
 }
 
 function childNodes(node: Node): Node[] {
@@ -128,7 +220,8 @@ export interface JavaScriptAnalysis {
   diagnostics: Diagnostic[]
 }
 
-export function analyzeJavaScript(code: string): JavaScriptAnalysis {
+export function analyzeJavaScript(code: string, extraGlobals: Iterable<string> = []): JavaScriptAnalysis {
+  const allowedGlobals = new Set(extraGlobals)
   let root: Node
   try {
     root = parse(code, { ecmaVersion: 'latest', sourceType: 'module', locations: true, ranges: true }) as unknown as Node
@@ -143,22 +236,24 @@ export function analyzeJavaScript(code: string): JavaScriptAnalysis {
   const diagnostics: Diagnostic[] = []
   const scopeManager = analyze(root as never, { ecmaVersion: 2022, sourceType: 'module' })
   for (const reference of scopeManager.globalScope?.through ?? []) {
-    if (!knownGlobals.has(reference.identifier.name)) {
+    if (!knownGlobals.has(reference.identifier.name) && !allowedGlobals.has(reference.identifier.name)) {
       const identifier = reference.identifier as unknown as Node & { name: string }
       diagnostics.push(diagnostic(`未定義の識別子「${identifier.name}」です`, identifier))
     }
   }
   diagnostics.push(...unreachableDiagnostics(root))
+  diagnostics.push(...suspiciousArrayDiagnostics(root))
   const edits = moduleEdits(root, diagnostics)
   return { code: applyEdits(code, edits), diagnostics }
 }
 
 export function lintJavaScript(code: string): ExecuteResult {
   const result = analyzeJavaScript(code)
+  const errors = result.diagnostics.filter((item) => item.severity === 'error')
   return {
     stdout: '',
-    stderr: result.diagnostics.map((item) => `${item.line}:${item.column} ${item.message}`).join('\n'),
-    exitCode: result.diagnostics.some((item) => item.severity === 'error') ? 1 : 0,
+    stderr: errors.map((item) => `${item.line}:${item.column} ${item.message}`).join('\n'),
+    exitCode: errors.length ? 1 : 0,
     diagnostics: result.diagnostics,
   }
 }

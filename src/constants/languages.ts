@@ -62,6 +62,32 @@ console.log({ answer })`,
     stdin: '',
   },
   {
+    id: 'react',
+    label: 'React',
+    extension: 'App.jsx',
+    color: '#61dafb',
+    description: 'JSX変換 + Reactプレビュー',
+    sample: `import { useState } from 'react'
+
+function App() {
+  const [count] = useState(3)
+  const topics = ['JSX', 'Components', 'Hooks']
+
+  return (
+    <main style={{ fontFamily: 'system-ui', padding: 32 }}>
+      <h1>Hello from React!</h1>
+      <p>Count: {count}</p>
+      <ul>
+        {topics.map((topic) => <li key={topic}>{topic}</li>)}
+      </ul>
+    </main>
+  )
+}
+
+render(<App />)`,
+    stdin: '',
+  },
+  {
     id: 'whitespace',
     label: 'Whitespace',
     extension: 'hello.ws',

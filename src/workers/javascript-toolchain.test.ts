@@ -41,4 +41,25 @@ describe('JavaScript static analysis', () => {
     expect(staticResult.diagnostics[0].message).toContain('外部モジュール')
     expect(dynamicResult.diagnostics[0].message).toContain('local:runtime')
   })
+
+  it('suggests checking array ranges that omit existing items', () => {
+    const loop = lintJavaScript(`
+      const values = [10, 20, 30, 40, 50]
+      let total = 0
+      for (let i = 0; i < 4; i++) total += values[i]
+      console.log(total)
+    `)
+    const reduce = lintJavaScript('const values = [1, 2, 3, 4, 5]; console.log(values.slice(0, 4).reduce((a, b) => a + b, 0))')
+    expect(loop.exitCode).toBe(0)
+    expect(loop.diagnostics[0]).toMatchObject({ severity: 'warning' })
+    expect(loop.diagnostics[0]?.message).toContain('values.length')
+    expect(reduce.diagnostics[0]?.message).toContain('先頭4件')
+  })
+
+  it('suggests strict comparison for an assignment used as a condition', () => {
+    const result = lintJavaScript('let ready = false; if (ready = true) console.log(ready)')
+    expect(result.exitCode).toBe(0)
+    expect(result.diagnostics[0]).toMatchObject({ severity: 'warning' })
+    expect(result.diagnostics[0]?.message).toContain('===')
+  })
 })

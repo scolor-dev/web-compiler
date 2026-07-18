@@ -98,6 +98,6 @@ function describeJavaScript(line: string): string | null {
 
 export function describeLogicLine(language: LanguageId, line: string) {
   if (language === 'c') return describeC(line)
-  if (language === 'javascript') return describeJavaScript(line)
+  if (language === 'javascript' || language === 'react') return describeJavaScript(line)
   return null
 }

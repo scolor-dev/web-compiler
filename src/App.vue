@@ -17,16 +17,20 @@ const savedTheme = localStorage.getItem('local-code-studio:theme')
 const dark = ref(savedTheme ? savedTheme === 'dark' : systemDark.matches)
 const cursor = ref({ line: 1, column: 1 })
 const panel = ref<'output' | 'input' | 'console' | 'flow'>('output')
-const logicVisible = reactive<Record<LanguageId, boolean>>({ c: false, javascript: false, whitespace: false })
+const logicVisible = reactive<Record<LanguageId, boolean>>({ c: false, javascript: false, react: false, whitespace: false })
 const { running, result, activeAction, run, lint, stop } = useExecution()
 
 const current = computed(() => languageMap[language.value])
 const diagnostics = computed(() => result.value?.diagnostics ?? [])
 const hasDiagnosticErrors = computed(() => diagnostics.value.some((item) => item.severity === 'error'))
 const flowGraph = computed(() => buildFlowGraph(language.value, code[language.value]))
+const reactPreviewDocument = computed(() => result.value?.previewHtml === undefined ? '' : `<!doctype html>
+<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'">
+<style>html{color-scheme:light}body{margin:0;color:#18181b;background:#fff;font-family:system-ui,sans-serif}</style></head><body>${result.value.previewHtml}</body></html>`)
 const status = computed(() => {
   if (running.value) return { text: activeAction.value === 'lint' ? 'Lint中' : '実行中', tone: 'running' }
   if (!result.value) return { text: '準備完了', tone: 'idle' }
+  if (result.value.exitCode === 0 && result.value.action === 'lint' && diagnostics.value.length) return { text: '確認候補あり', tone: 'warning' }
   if (result.value.exitCode === 0) return { text: result.value.action === 'lint' ? '問題なし' : '実行成功', tone: 'success' }
   return { text: 'エラー', tone: 'error' }
 })
@@ -99,8 +103,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
     <main class="workspace grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,.8fr)]">
       <section class="flex min-h-[56dvh] min-w-0 flex-col border-b border-zinc-200/80 lg:min-h-0 lg:border-r lg:border-b-0 dark:border-white/8">
         <div class="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-zinc-200/80 bg-white/65 px-3 dark:border-white/8 dark:bg-white/[.015] sm:px-4">
-          <nav class="flex min-w-0 items-center gap-1" aria-label="プログラミング言語">
-            <button v-for="item in languages" :key="item.id" type="button" class="language-tab" :class="{ active: language === item.id }" @click="selectLanguage(item.id)">
+          <nav class="flex min-w-0 items-center gap-1 overflow-x-auto" aria-label="プログラミング言語">
+            <button v-for="item in languages" :key="item.id" type="button" class="language-tab shrink-0" :class="{ active: language === item.id }" @click="selectLanguage(item.id)">
               <span class="language-dot" :style="{ backgroundColor: item.color }" />
               <span>{{ item.label }}</span>
             </button>
@@ -152,7 +156,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
         <div v-else-if="panel === 'input'" class="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
           <label for="stdin" class="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">プログラムへ渡す入力</label>
           <textarea id="stdin" v-model="stdin[language]" spellcheck="false" placeholder="1行目&#10;2行目..." class="terminal-surface min-h-40 flex-1 resize-none p-4 font-mono text-sm leading-6 outline-none focus:ring-2 focus:ring-violet-500/40" />
-          <p class="mt-2 text-[11px] text-zinc-400">Cでは getchar()、Whitespaceでは入力命令、JavaScriptでは stdin 変数から参照できます。</p>
+          <p class="mt-2 text-[11px] text-zinc-400">Cでは getchar()、Whitespaceでは入力命令、JavaScript / Reactでは stdin 変数から参照できます。</p>
         </div>
 
         <div v-else-if="panel === 'console'" class="flex min-h-0 flex-1 flex-col bg-[#111114] text-zinc-200">
@@ -166,7 +170,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
             <template v-else>
               <pre v-if="result.stdout" class="whitespace-pre-wrap text-zinc-100">{{ result.stdout }}</pre>
               <pre v-if="result.stderr" class="whitespace-pre-wrap text-rose-400">{{ result.stderr }}</pre>
-              <p v-if="!result.stdout && !result.stderr" class="text-zinc-500">{{ result.action === 'lint' ? '分かりやすい構文上の問題は見つかりませんでした。' : '（出力はありません）' }}</p>
+              <p v-if="!result.stdout && !result.stderr" class="text-zinc-500">{{ result.action === 'lint' ? (diagnostics.length ? '確認した方がよい候補があります。' : '分かりやすい構文上の問題は見つかりませんでした。') : '（出力はありません）' }}</p>
               <div v-if="diagnostics.length" class="mt-4 border-t border-white/8 pt-3">
                 <p v-for="(item, index) in diagnostics" :key="index" :class="item.severity === 'warning' ? 'text-amber-400' : 'text-rose-400'"><span class="mr-2">!</span>{{ current.extension }}:{{ item.line }}:{{ item.column }} {{ item.message }}</p>
               </div>
@@ -192,15 +196,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
             <div class="max-w-xs"><div class="mx-auto mb-4 grid size-12 place-items-center rounded-2xl border border-zinc-200 bg-white text-zinc-400 shadow-sm dark:border-white/8 dark:bg-white/[.03]"><IconBase name="terminal" class="size-5" /></div><p class="text-sm font-semibold text-zinc-700 dark:text-zinc-300">実行結果がここに表示されます</p><p class="mt-1.5 text-xs leading-5 text-zinc-400">コードを書いたら「実行」を押してください。<br><span class="font-mono">Ctrl / Cmd + Enter</span> でも実行できます。</p></div>
           </div>
           <div v-else class="flex min-h-0 flex-1 flex-col overflow-auto p-4 sm:p-5">
-            <div class="mb-3 flex items-center gap-2 text-xs font-bold" :class="result.exitCode === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
-              <IconBase :name="result.exitCode === 0 ? 'check' : 'error'" class="size-4" />
-              {{ result.exitCode === 0 ? (result.action === 'lint' ? 'Lint完了 — 問題は見つかりませんでした' : '正常終了') : (result.action === 'lint' ? 'Lintで問題が見つかりました' : `終了コード ${result.exitCode}`) }}
+            <div class="mb-3 flex items-center gap-2 text-xs font-bold" :class="result.exitCode !== 0 ? 'text-rose-600 dark:text-rose-400' : diagnostics.length ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
+              <IconBase :name="result.exitCode === 0 && !diagnostics.length ? 'check' : 'error'" class="size-4" />
+              {{ result.exitCode === 0 ? (result.action === 'lint' ? (diagnostics.length ? `Lint完了 — 確認候補が${diagnostics.length}件あります` : 'Lint完了 — 問題は見つかりませんでした') : '正常終了') : (result.action === 'lint' ? 'Lintで問題が見つかりました' : `終了コード ${result.exitCode}`) }}
             </div>
+            <iframe v-if="result.previewHtml !== undefined" :srcdoc="reactPreviewDocument" sandbox="" title="Reactプレビュー" class="mb-4 min-h-72 w-full flex-1 rounded-xl border border-zinc-200 bg-white dark:border-white/10" />
             <div v-if="result.stdout || result.stderr" class="terminal-surface min-h-32 shrink-0 overflow-auto p-4 font-mono text-[13px] leading-6">
               <pre v-if="result.stdout" class="whitespace-pre-wrap text-zinc-800 dark:text-zinc-200">{{ result.stdout }}</pre>
               <pre v-if="result.stderr" class="whitespace-pre-wrap text-rose-600 dark:text-rose-400">{{ result.stderr }}</pre>
             </div>
-            <div v-else class="terminal-surface p-4 font-mono text-xs text-zinc-400">{{ result.action === 'lint' ? '分かりやすい構文上の問題は見つかりませんでした。' : '（出力はありません）' }}</div>
+            <div v-else-if="result.previewHtml === undefined" class="terminal-surface p-4 font-mono text-xs text-zinc-400">{{ result.action === 'lint' ? (diagnostics.length ? '以下の確認候補を見直してください。' : '分かりやすい構文上の問題は見つかりませんでした。') : '（出力はありません）' }}</div>
             <div v-if="diagnostics.length" class="mt-4 space-y-2">
               <button v-for="(item, index) in diagnostics" :key="index" class="diagnostic-card w-full text-left" :class="item.severity" type="button">
                 <IconBase name="error" class="mt-0.5 size-4 shrink-0" :class="item.severity === 'warning' ? 'text-amber-500' : 'text-rose-500'" />

@@ -7,6 +7,7 @@
 - **Whitespace**: Rust/WASM製のパーサー・VMで実行
 - **C**: Clang WASMでGNU C17をコンパイルし、WASI上で実行
 - **JavaScript**: Acornとeslint-scopeで静的検査し、専用Web Worker内で実行
+- **React**: JSXをブラウザ内で変換し、Reactのローカルレンダラーで隔離プレビュー
 
 入力したコードや実行結果をサーバーへ送信しません。ビルド成果物を静的ホスティングするだけで利用できます。
 
@@ -17,8 +18,9 @@
 - 実行、停止、実行時間制限
 - 標準出力・標準エラー・終了状態の表示
 - 行・列付きのコンパイル／実行エラー表示
-- 3言語対応の切り替え式ロジック解説表示
-- 3言語の分岐・ループ・ジャンプを可視化するフロー図
+- 意図とのずれが疑われる箇所を黄色で示すLint提案
+- 4言語対応の切り替え式ロジック解説表示
+- 4言語の分岐・ループ・ジャンプを可視化するフロー図
 - サンプルプログラム
 - エディター内容と言語設定のブラウザ内保存
 - レスポンシブUIとダーク／ライトテーマ
@@ -31,6 +33,7 @@
 - Rust + wasm-bindgen + WebAssembly（Whitespace）
 - Clang WebAssembly + WASI（C）
 - Acorn + eslint-scope（JavaScript Lint）
+- Sucrase + React（JSX変換・静的HTMLレンダリング）
 - Web Worker（UIをブロックしない実行とタイムアウト制御）
 - Vitest（フロントエンド） / cargo test（Rust）
 
@@ -98,9 +101,9 @@ npm run build
 - JavaScriptはDOMへ触れない専用Workerで実行
 - `fetch`、`XMLHttpRequest`、`WebSocket`、`importScripts`等のネットワークAPIをWorker内で無効化
 - 無限ループはメインスレッド側のタイムアウトでWorkerごと停止
-- Cは30秒、JavaScriptとWhitespaceは5秒でWorkerごと停止
+- Cは30秒、JavaScript・React・Whitespaceは5秒でWorkerごと停止
 - Cの標準出力・標準エラーとコンパイラ診断は各100,000バイトで省略
-- ユーザーコードをHTMLとして描画しない
+- Reactの生成HTMLはCSP付きsandbox iframeだけに描画し、アプリ本体のDOMから分離
 
 ## ライセンス
 
