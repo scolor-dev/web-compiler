@@ -15,6 +15,7 @@ const savedTheme = localStorage.getItem('local-code-studio:theme')
 const dark = ref(savedTheme ? savedTheme === 'dark' : systemDark.matches)
 const cursor = ref({ line: 1, column: 1 })
 const panel = ref<'output' | 'input' | 'console'>('output')
+const logicVisible = reactive<Record<LanguageId, boolean>>({ c: false, javascript: false, whitespace: false })
 const { running, result, activeAction, run, lint, stop } = useExecution()
 
 const current = computed(() => languageMap[language.value])
@@ -44,6 +45,7 @@ function lintCode() {
   if (panel.value === 'input') panel.value = 'output'
   lint(language.value, code[language.value])
 }
+function toggleLogic() { logicVisible[language.value] = !logicVisible[language.value] }
 function resetCode() {
   code[language.value] = current.value.sample
   stdin[language.value] = current.value.stdin
@@ -112,7 +114,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
             <span class="ws-legend-token"><b>·</b> ASCII Space</span><span class="ws-legend-token"><b>⇥</b> Tab</span><span class="ws-legend-token"><b>↵</b> LF</span><span class="ws-legend-token ignored" title="NBSP・全角スペース・その他のUnicode空白"><b>⍽ □ ␠</b> 他は無視</span>
             <span class="ws-legend-stack">● Stack</span><span class="ws-legend-arithmetic">● Math</span><span class="ws-legend-heap">● Heap</span><span class="ws-legend-flow">● Flow</span><span class="ws-legend-io">● I/O</span><span class="ws-legend-number">● Number</span><span class="ws-legend-label">● Label</span>
           </div>
-          <CodeEditor v-model="code[language]" :language :dark :diagnostics class="flex-1" @cursor="(line, column) => cursor = { line, column }" />
+          <CodeEditor v-model="code[language]" :language :dark :diagnostics :show-logic="logicVisible[language]" class="flex-1" @cursor="(line, column) => cursor = { line, column }" />
         </div>
 
         <div class="flex min-h-16 shrink-0 items-center justify-between gap-3 border-t border-zinc-200/80 bg-white/75 px-4 dark:border-white/8 dark:bg-white/[.02]">
@@ -122,6 +124,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
           </div>
           <button v-if="running" type="button" class="run-button stop" @click="stop"><IconBase name="stop" class="size-4" />停止</button>
           <div v-else class="flex items-center gap-2">
+            <button type="button" class="logic-button" :class="{ active: logicVisible[language] }" :aria-pressed="logicVisible[language]" :title="logicVisible[language] ? 'ロジック解説を非表示' : 'ロジック解説を表示'" @click="toggleLogic"><IconBase name="code" class="size-4" /><span class="hidden sm:inline">ロジック</span></button>
             <button type="button" class="lint-button" title="実行せずに分かりやすい問題を検査（Ctrl/Cmd + Shift + Enter）" @click="lintCode"><IconBase name="lint" class="size-4" /><span>Lint</span></button>
             <button type="button" class="run-button" @click="executeCode"><IconBase name="play" class="size-4 fill-current" /><span>実行</span><kbd class="hidden sm:inline">⌘↵</kbd></button>
           </div>
