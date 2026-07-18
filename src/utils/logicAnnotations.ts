@@ -40,6 +40,8 @@ function describeC(line: string): string | null {
   if (declaration) return declaration[2] ? `変数${declaration[1]}を${declaration[2]}で初期化` : `変数${declaration[1]}を宣言`
   const assignment = source.match(/^([A-Za-z_]\w*(?:\[[^\]]+\])?)\s*([+\-*/%]?=)\s*(.+);/)
   if (assignment) return `${assignment[1]}を${assignment[3]}で更新`
+  const increment = source.match(/^([A-Za-z_]\w*)(\+\+|--);?$/)
+  if (increment) return `${increment[1]}を1${increment[2] === '++' ? '増やす' : '減らす'}`
   const call = source.match(/^([A-Za-z_]\w*)\s*\(/)?.[1]
   if (call) return `関数${call}を呼び出す`
   return null
@@ -81,10 +83,16 @@ function describeJavaScript(line: string): string | null {
   if (/\.(?:map|flatMap)\s*\(/.test(source)) return '各要素を変換して新しい配列を作る'
   if (/\.filter\s*\(/.test(source)) return '条件に合う要素だけを取り出す'
   if (/\.reduce\s*\(/.test(source)) return '各要素を1つの値へ集約する'
+  const push = source.match(/^([A-Za-z_$][\w$]*)\.push\s*\((.+)\)\s*;?$/)
+  if (push) return `${push[1]}へ${push[2]}を追加`
+  const increment = source.match(/^([A-Za-z_$][\w$]*)(\+\+|--);?$/)
+  if (increment) return `${increment[1]}を1${increment[2] === '++' ? '増やす' : '減らす'}`
   const assignment = source.match(/^([A-Za-z_$][\w$]*(?:\[[^\]]+\])?)\s*([+\-*/%]?=)\s*(.+);?$/)
   if (assignment) return `${assignment[1]}を${assignment[3]}で更新`
   const call = source.match(/^(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(/)?.[1]
   if (call) return `関数${call}を呼び出す`
+  const method = source.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\(/)
+  if (method) return `${method[1]}の${method[2]}を呼び出す`
   return null
 }
 

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import CodeEditor from './components/CodeEditor.vue'
+import FlowDiagram from './components/FlowDiagram.vue'
 import IconBase from './components/IconBase.vue'
 import { languageMap, languages } from './constants/languages'
 import { useExecution } from './composables/useExecution'
 import type { LanguageId } from './types/execution'
+import { buildFlowGraph } from './utils/flowGraph'
 
 const savedLanguage = localStorage.getItem('local-code-studio:language') as LanguageId | null
 const language = ref<LanguageId>(savedLanguage && languageMap[savedLanguage] ? savedLanguage : 'c')
@@ -14,13 +16,14 @@ const systemDark = matchMedia('(prefers-color-scheme: dark)')
 const savedTheme = localStorage.getItem('local-code-studio:theme')
 const dark = ref(savedTheme ? savedTheme === 'dark' : systemDark.matches)
 const cursor = ref({ line: 1, column: 1 })
-const panel = ref<'output' | 'input' | 'console'>('output')
+const panel = ref<'output' | 'input' | 'console' | 'flow'>('output')
 const logicVisible = reactive<Record<LanguageId, boolean>>({ c: false, javascript: false, whitespace: false })
 const { running, result, activeAction, run, lint, stop } = useExecution()
 
 const current = computed(() => languageMap[language.value])
 const diagnostics = computed(() => result.value?.diagnostics ?? [])
 const hasDiagnosticErrors = computed(() => diagnostics.value.some((item) => item.severity === 'error'))
+const flowGraph = computed(() => buildFlowGraph(language.value, code[language.value]))
 const status = computed(() => {
   if (running.value) return { text: activeAction.value === 'lint' ? 'Lint中' : '実行中', tone: 'running' }
   if (!result.value) return { text: '準備完了', tone: 'idle' }
@@ -38,14 +41,15 @@ const whitespaceStats = computed(() => {
 })
 
 function executeCode() {
-  if (panel.value === 'input') panel.value = 'output'
+  if (panel.value === 'input' || panel.value === 'flow') panel.value = 'output'
   run(language.value, code[language.value], stdin[language.value])
 }
 function lintCode() {
-  if (panel.value === 'input') panel.value = 'output'
+  if (panel.value === 'input' || panel.value === 'flow') panel.value = 'output'
   lint(language.value, code[language.value])
 }
 function toggleLogic() { logicVisible[language.value] = !logicVisible[language.value] }
+function showFlow() { panel.value = 'flow' }
 function resetCode() {
   code[language.value] = current.value.sample
   stdin[language.value] = current.value.stdin
@@ -125,6 +129,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
           <button v-if="running" type="button" class="run-button stop" @click="stop"><IconBase name="stop" class="size-4" />停止</button>
           <div v-else class="flex items-center gap-2">
             <button type="button" class="logic-button" :class="{ active: logicVisible[language] }" :aria-pressed="logicVisible[language]" :title="logicVisible[language] ? 'ロジック解説を非表示' : 'ロジック解説を表示'" @click="toggleLogic"><IconBase name="code" class="size-4" /><span class="hidden sm:inline">ロジック</span></button>
+            <button type="button" class="flow-button" :class="{ active: panel === 'flow' }" title="コードの処理フロー図を表示" @click="showFlow"><IconBase name="flow" class="size-4" /><span class="hidden sm:inline">フロー図</span></button>
             <button type="button" class="lint-button" title="実行せずに分かりやすい問題を検査（Ctrl/Cmd + Shift + Enter）" @click="lintCode"><IconBase name="lint" class="size-4" /><span>Lint</span></button>
             <button type="button" class="run-button" @click="executeCode"><IconBase name="play" class="size-4 fill-current" /><span>実行</span><kbd class="hidden sm:inline">⌘↵</kbd></button>
           </div>
@@ -137,11 +142,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
             <button type="button" class="panel-tab" :class="{ active: panel === 'output' }" @click="panel = 'output'"><IconBase name="terminal" class="size-4" />出力<span v-if="diagnostics.length" class="error-count" :class="{ warning: !hasDiagnosticErrors }">{{ diagnostics.length }}</span></button>
             <button type="button" class="panel-tab" :class="{ active: panel === 'input' }" @click="panel = 'input'"><IconBase name="input" class="size-4" />標準入力</button>
             <button type="button" class="panel-tab" :class="{ active: panel === 'console' }" @click="panel = 'console'"><IconBase name="code" class="size-4" />コンソール</button>
+            <button type="button" class="panel-tab" :class="{ active: panel === 'flow' }" @click="panel = 'flow'"><IconBase name="flow" class="size-4" />フロー図</button>
           </div>
           <span v-if="result?.durationMs !== undefined" class="mb-4 font-mono text-[10px] text-zinc-400">{{ result.durationMs.toFixed(1) }} ms</span>
         </div>
 
-        <div v-if="panel === 'input'" class="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
+        <FlowDiagram v-if="panel === 'flow'" :graph="flowGraph" />
+
+        <div v-else-if="panel === 'input'" class="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
           <label for="stdin" class="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">プログラムへ渡す入力</label>
           <textarea id="stdin" v-model="stdin[language]" spellcheck="false" placeholder="1行目&#10;2行目..." class="terminal-surface min-h-40 flex-1 resize-none p-4 font-mono text-sm leading-6 outline-none focus:ring-2 focus:ring-violet-500/40" />
           <p class="mt-2 text-[11px] text-zinc-400">Cでは getchar()、Whitespaceでは入力命令、JavaScriptでは stdin 変数から参照できます。</p>
