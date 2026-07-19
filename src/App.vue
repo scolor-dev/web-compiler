@@ -5,7 +5,8 @@ import FlowDiagram from './components/FlowDiagram.vue'
 import IconBase from './components/IconBase.vue'
 import { languageMap, languages } from './constants/languages'
 import { useExecution } from './composables/useExecution'
-import { preloadChromeBuiltInAi, reviewCodeAgainstSpecification } from './services/chromeBuiltInAi'
+import { buildSpecificationReviewPrompt, preloadChromeBuiltInAi, reviewCodeAgainstSpecification } from './services/chromeBuiltInAi'
+import { GEMINI_API_MODEL, reviewWithGeminiApi } from './services/geminiApi'
 import type { LanguageId } from './types/execution'
 import { diagnosticSuggestion } from './utils/diagnosticSuggestions'
 import { buildFlowGraph } from './utils/flowGraph'
@@ -24,6 +25,9 @@ const logicVisible = reactive<Record<LanguageId, boolean>>({ c: false, javascrip
 const specifications = reactive(Object.fromEntries(languages.map((item) => [item.id, localStorage.getItem(`local-code-studio:specification:${item.id}`) ?? ''])) as Record<LanguageId, string>)
 const aiReviews = reactive(Object.fromEntries(languages.map((item) => [item.id, { text: '', error: '' }])) as Record<LanguageId, { text: string, error: string }>)
 const aiReviewRunning = ref(false)
+const savedAiMode = localStorage.getItem('local-code-studio:ai-review-mode')
+const aiReviewMode = ref<'local' | 'gemini'>(savedAiMode === 'gemini' ? 'gemini' : 'local')
+const geminiApiKey = ref(sessionStorage.getItem('local-code-studio:gemini-api-key') ?? '')
 const { running, result, activeAction, run, lint, stop } = useExecution()
 
 const current = computed(() => languageMap[language.value])
@@ -82,7 +86,12 @@ async function reviewSpecification() {
   aiReviewRunning.value = true
   aiReviews[targetLanguage] = { text: '', error: '' }
   try {
-    const text = await reviewCodeAgainstSpecification(current.value.label, specification, code[targetLanguage])
+    const text = aiReviewMode.value === 'gemini'
+      ? await reviewWithGeminiApi(
+          geminiApiKey.value,
+          buildSpecificationReviewPrompt(current.value.label, specification, code[targetLanguage]),
+        )
+      : await reviewCodeAgainstSpecification(current.value.label, specification, code[targetLanguage])
     aiReviews[targetLanguage] = { text, error: '' }
   } catch (error) {
     aiReviews[targetLanguage] = { text: '', error: error instanceof Error ? error.message : String(error) }
@@ -90,6 +99,7 @@ async function reviewSpecification() {
     aiReviewRunning.value = false
   }
 }
+function clearGeminiApiKey() { geminiApiKey.value = '' }
 function resetCode() {
   code[language.value] = current.value.sample
   stdin[language.value] = current.value.stdin
@@ -111,6 +121,11 @@ watch(dark, (value) => { document.documentElement.classList.toggle('dark', value
 watch(code, (value) => Object.entries(value).forEach(([id, source]) => localStorage.setItem(`local-code-studio:code:${id}`, source)), { deep: true })
 watch(stdin, (value) => Object.entries(value).forEach(([id, source]) => localStorage.setItem(`local-code-studio:stdin:${id}`, source)), { deep: true })
 watch(specifications, (value) => Object.entries(value).forEach(([id, specification]) => localStorage.setItem(`local-code-studio:specification:${id}`, specification)), { deep: true })
+watch(aiReviewMode, (value) => localStorage.setItem('local-code-studio:ai-review-mode', value))
+watch(geminiApiKey, (value) => {
+  if (value) sessionStorage.setItem('local-code-studio:gemini-api-key', value)
+  else sessionStorage.removeItem('local-code-studio:gemini-api-key')
+})
 onMounted(() => window.addEventListener('keydown', handleKeyboard))
 onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
 </script>
@@ -192,19 +207,42 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
         <FlowDiagram v-if="panel === 'flow'" :graph="flowGraph" />
 
         <div v-else-if="panel === 'review'" class="flex min-h-0 flex-1 flex-col overflow-auto p-4 sm:p-5">
+          <fieldset class="mb-5">
+            <legend class="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">レビューに使用するAI</legend>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button type="button" class="ai-mode-option" :class="{ active: aiReviewMode === 'local' }" :aria-pressed="aiReviewMode === 'local'" @click="aiReviewMode = 'local'">
+                <span class="ai-mode-radio"><span /></span>
+                <span><strong>Chrome ローカルAI</strong><small>Gemini Nano · 端末内処理</small></span>
+              </button>
+              <button type="button" class="ai-mode-option" :class="{ active: aiReviewMode === 'gemini' }" :aria-pressed="aiReviewMode === 'gemini'" @click="aiReviewMode = 'gemini'">
+                <span class="ai-mode-radio"><span /></span>
+                <span><strong>Gemini API</strong><small>{{ GEMINI_API_MODEL }} · クラウド処理</small></span>
+              </button>
+            </div>
+          </fieldset>
+
+          <div v-if="aiReviewMode === 'gemini'" class="mb-5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-400/20 dark:bg-amber-400/[.05]">
+            <label for="gemini-api-key" class="text-xs font-semibold text-amber-900 dark:text-amber-200">Gemini APIキー</label>
+            <div class="mt-2 flex gap-2">
+              <input id="gemini-api-key" v-model="geminiApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="AQ... または AIza..." class="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white px-3 py-2 font-mono text-xs text-zinc-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 dark:border-amber-400/20 dark:bg-black/20 dark:text-zinc-200" />
+              <button v-if="geminiApiKey" type="button" class="rounded-lg border border-amber-300 px-3 text-[11px] font-bold text-amber-800 hover:bg-amber-100 dark:border-amber-400/30 dark:text-amber-300 dark:hover:bg-amber-400/10" @click="clearGeminiApiKey">消去</button>
+            </div>
+            <p class="mt-2 text-[10px] leading-5 text-amber-700 dark:text-amber-300/80">キーは現在のタブだけに保存され、ソースコードやビルド成果物には含まれません。APIモードでは仕様とコードをGoogle Gemini APIへ送信します。</p>
+          </div>
+
           <div class="mb-3">
             <label for="specification" class="text-xs font-semibold text-zinc-700 dark:text-zinc-300">期待する仕様</label>
             <p class="mt-1 text-[11px] leading-5 text-zinc-400">何を入力し、どのような計算・分岐・出力にしたいか具体的に記述してください。</p>
           </div>
           <textarea id="specification" v-model="specifications[language]" spellcheck="true" placeholder="例: 商品合計に送料を加算して請求額を表示する。負の金額は受け付けない。" class="terminal-surface min-h-40 shrink-0 resize-y p-4 text-sm leading-6 outline-none focus:ring-2 focus:ring-emerald-500/30" />
           <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <p class="flex items-center gap-1.5 text-[10px] text-zinc-400"><IconBase name="sparkles" class="size-3.5" />仕様とコードはChromeの端末内AIで確認します</p>
-            <button type="button" class="ai-review-button" :disabled="!specifications[language].trim() || aiReviewRunning" @click="reviewSpecification">
-              <IconBase name="sparkles" class="size-4" />{{ aiReviewRunning ? '確認中...' : '仕様とコードを確認' }}
+            <p class="flex items-center gap-1.5 text-[10px] text-zinc-400"><IconBase name="sparkles" class="size-3.5" />{{ aiReviewMode === 'local' ? 'Chromeの端末内AIで確認します' : `${GEMINI_API_MODEL}で確認します` }}</p>
+            <button type="button" class="ai-review-button" :disabled="!specifications[language].trim() || aiReviewRunning || (aiReviewMode === 'gemini' && !geminiApiKey.trim())" @click="reviewSpecification">
+              <IconBase name="sparkles" class="size-4" />{{ aiReviewRunning ? '確認中...' : aiReviewMode === 'local' ? 'ローカルAIで確認' : 'Gemini APIで確認' }}
             </button>
           </div>
           <div v-if="aiReviewRunning" class="mt-5 flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 p-4 text-xs text-violet-700 dark:border-violet-400/20 dark:bg-violet-400/[.06] dark:text-violet-300">
-            <span class="loader size-4 shrink-0 rounded-full border-2 border-violet-200 border-t-violet-600 dark:border-violet-900 dark:border-t-violet-300" />端末内AIが仕様とコードを確認しています...
+            <span class="loader size-4 shrink-0 rounded-full border-2 border-violet-200 border-t-violet-600 dark:border-violet-900 dark:border-t-violet-300" />{{ aiReviewMode === 'local' ? '端末内AI' : 'Gemini API' }}が仕様とコードを確認しています...
           </div>
           <div v-else-if="aiReviews[language].error" class="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-6 text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/[.06] dark:text-rose-300">
             <strong class="block">AIレビューを開始できませんでした</strong>{{ aiReviews[language].error }}
