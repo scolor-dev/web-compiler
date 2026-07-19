@@ -93,19 +93,20 @@ function suspiciousArrayDiagnostics(root: Node): Diagnostic[] {
 
     if (node.type === 'CallExpression') {
       const reduceMember = node.callee as Node
-      const reduceName = reduceMember?.type === 'MemberExpression' ? identifierName(reduceMember.property as Node) : undefined
+      const collectionMethod = reduceMember?.type === 'MemberExpression' ? identifierName(reduceMember.property as Node) : undefined
       const sliceCall = reduceMember?.type === 'MemberExpression' ? reduceMember.object as Node : undefined
       const sliceMember = sliceCall?.type === 'CallExpression' ? sliceCall.callee as Node : undefined
       const sliceName = sliceMember?.type === 'MemberExpression' ? identifierName(sliceMember.property as Node) : undefined
       const arrayName = sliceMember?.type === 'MemberExpression' ? identifierName(sliceMember.object as Node) : undefined
-      if (reduceName === 'reduce' && sliceName === 'slice' && arrayName && arrays.has(arrayName)) {
+      if (collectionMethod && ['reduce', 'map', 'forEach', 'filter'].includes(collectionMethod) && sliceName === 'slice' && arrayName && arrays.has(arrayName)) {
         const args = sliceCall!.arguments as Node[]
         const start = args.length > 1 ? literalNumber(args[0]) : 0
         const end = literalNumber(args[1])
         const length = arrays.get(arrayName)!.length
         if ((start === 0 || start === undefined) && end !== undefined && end >= 0 && end < length) {
+          const purpose = collectionMethod === 'reduce' ? '集計対象' : '処理対象'
           results.push(diagnostic(
-            `配列「${arrayName}」には${length}件ありますが、集計対象は先頭${end}件です。全件の集計なら slice(0, ${end}) は不要ではありませんか？`,
+            `配列「${arrayName}」には${length}件ありますが、${purpose}は先頭${end}件です。全件を使うなら slice(0, ${end}) は不要ではありませんか？`,
             args[1] ?? node,
             'warning',
           ))

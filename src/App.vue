@@ -5,10 +5,13 @@ import FlowDiagram from './components/FlowDiagram.vue'
 import IconBase from './components/IconBase.vue'
 import { languageMap, languages } from './constants/languages'
 import { useExecution } from './composables/useExecution'
+import { preloadChromeBuiltInAi } from './services/chromeBuiltInAi'
 import type { LanguageId } from './types/execution'
+import { diagnosticSuggestion } from './utils/diagnosticSuggestions'
 import { buildFlowGraph } from './utils/flowGraph'
 
 const savedLanguage = localStorage.getItem('local-code-studio:language') as LanguageId | null
+void preloadChromeBuiltInAi()
 const language = ref<LanguageId>(savedLanguage && languageMap[savedLanguage] ? savedLanguage : 'c')
 const code = reactive(Object.fromEntries(languages.map((item) => [item.id, localStorage.getItem(`local-code-studio:code:${item.id}`) ?? item.sample])) as Record<LanguageId, string>)
 const stdin = reactive(Object.fromEntries(languages.map((item) => [item.id, localStorage.getItem(`local-code-studio:stdin:${item.id}`) ?? item.stdin])) as Record<LanguageId, string>)
@@ -21,7 +24,22 @@ const logicVisible = reactive<Record<LanguageId, boolean>>({ c: false, javascrip
 const { running, result, activeAction, run, lint, stop } = useExecution()
 
 const current = computed(() => languageMap[language.value])
-const diagnostics = computed(() => result.value?.diagnostics ?? [])
+const diagnostics = computed(() => {
+  const execution = result.value
+  const items = [...(execution?.diagnostics ?? [])]
+  if (execution && execution.exitCode !== 0 && execution.exitCode !== 130 && !items.length) {
+    items.push({
+      severity: 'error',
+      message: execution.stderr.trim().split('\n')[0] || `終了コード ${execution.exitCode} で停止しました`,
+      line: 1,
+      column: 1,
+    })
+  }
+  return items.map((item) => ({
+    ...item,
+    suggestion: item.suggestion ?? diagnosticSuggestion(language.value, item),
+  }))
+})
 const hasDiagnosticErrors = computed(() => diagnostics.value.some((item) => item.severity === 'error'))
 const flowGraph = computed(() => buildFlowGraph(language.value, code[language.value]))
 const reactPreviewDocument = computed(() => result.value?.previewHtml === undefined ? '' : `<!doctype html>
@@ -172,7 +190,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
               <pre v-if="result.stderr" class="whitespace-pre-wrap text-rose-400">{{ result.stderr }}</pre>
               <p v-if="!result.stdout && !result.stderr" class="text-zinc-500">{{ result.action === 'lint' ? (diagnostics.length ? '確認した方がよい候補があります。' : '分かりやすい構文上の問題は見つかりませんでした。') : '（出力はありません）' }}</p>
               <div v-if="diagnostics.length" class="mt-4 border-t border-white/8 pt-3">
-                <p v-for="(item, index) in diagnostics" :key="index" :class="item.severity === 'warning' ? 'text-amber-400' : 'text-rose-400'"><span class="mr-2">!</span>{{ current.extension }}:{{ item.line }}:{{ item.column }} {{ item.message }}</p>
+                <div v-for="(item, index) in diagnostics" :key="index" class="mb-3 last:mb-0">
+                  <p :class="item.severity === 'warning' ? 'text-amber-400' : 'text-rose-400'"><span class="mr-2">!</span>{{ current.extension }}:{{ item.line }}:{{ item.column }} {{ item.message }}</p>
+                  <p v-if="item.suggestion" class="mt-1 pl-5 text-emerald-300"><span class="mr-2">↳</span>改善案: {{ item.suggestion }}</p>
+                </div>
               </div>
             </template>
           </div>
@@ -209,7 +230,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
             <div v-if="diagnostics.length" class="mt-4 space-y-2">
               <button v-for="(item, index) in diagnostics" :key="index" class="diagnostic-card w-full text-left" :class="item.severity" type="button">
                 <IconBase name="error" class="mt-0.5 size-4 shrink-0" :class="item.severity === 'warning' ? 'text-amber-500' : 'text-rose-500'" />
-                <span class="min-w-0"><span class="block text-xs font-semibold text-zinc-800 dark:text-zinc-200">{{ item.message }}</span><span class="mt-1 block font-mono text-[10px] text-zinc-400">{{ current.extension }}:{{ item.line }}:{{ item.column }}</span></span>
+                <span class="min-w-0">
+                  <span class="block text-xs font-semibold text-zinc-800 dark:text-zinc-200">{{ item.message }}</span>
+                  <span class="mt-1 block font-mono text-[10px] text-zinc-400">{{ current.extension }}:{{ item.line }}:{{ item.column }}</span>
+                  <span v-if="item.suggestion" class="diagnostic-suggestion mt-2 block text-[11px] leading-5"><strong>改善案</strong>{{ item.suggestion }}</span>
+                </span>
               </button>
             </div>
           </div>

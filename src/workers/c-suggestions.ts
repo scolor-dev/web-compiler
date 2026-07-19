@@ -92,13 +92,20 @@ function parameterRangeSuggestions(code: string) {
 
 function fixedArrayRangeSuggestions(code: string, arrays: Map<string, ArrayInfo>) {
   const results: Diagnostic[] = []
-  const loop = /for\s*\(\s*(?:int\s+)?([A-Za-z_]\w*)\s*=\s*0\s*;\s*\1\s*(<|<=)\s*(\d+)\s*;[^)]*\)([\s\S]*?)(?=\n\s*}|\n\s*(?:return|for|while|if)\b|$)/g
+  const loop = /for\s*\(\s*(?:int\s+)?([A-Za-z_]\w*)\s*=\s*0\s*;\s*\1\s*(<|<=)\s*(\d+)\s*;[^)]*\)/g
   for (const match of code.matchAll(loop)) {
     const indexName = match[1]!
     const operator = match[2]!
     const bound = Number(match[3])
+    const afterHeader = match.index! + match[0].length
+    const bodyOffset = code.slice(afterHeader).search(/\S/)
+    const bodyStart = bodyOffset < 0 ? code.length : afterHeader + bodyOffset
+    const lineEnd = code.indexOf('\n', bodyStart)
+    const body = code[bodyStart] === '{'
+      ? code.slice(bodyStart + 1, matchingBrace(code, bodyStart))
+      : code.slice(bodyStart, lineEnd < 0 ? code.length : lineEnd)
     for (const [name, array] of arrays) {
-      if (!new RegExp(`\\b${name}\\s*\\[\\s*${indexName}\\s*\\]`).test(match[4]!)) continue
+      if (!new RegExp(`\\b${name}\\s*\\[\\s*${indexName}\\s*\\]`).test(body)) continue
       const used = operator === '<' ? bound : bound + 1
       if (used < array.length) {
         results.push(warning(code, match.index! + match[0].indexOf(match[3]!), `配列「${name}」には${array.length}件ありますが、このループは先頭${used}件だけを使用します。「${indexName} < ${array.length}」ではありませんか？`))

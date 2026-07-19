@@ -56,6 +56,11 @@ describe('JavaScript static analysis', () => {
     expect(reduce.diagnostics[0]?.message).toContain('先頭4件')
   })
 
+  it('suggests checking a partial array before map', () => {
+    const result = lintJavaScript('const rows = [{ id: 1 }, { id: 2 }]; rows.slice(0, 1).map((row) => row.id)')
+    expect(result.diagnostics[0]?.message).toContain('処理対象は先頭1件')
+  })
+
   it('suggests strict comparison for an assignment used as a condition', () => {
     const result = lintJavaScript('let ready = false; if (ready = true) console.log(ready)')
     expect(result.exitCode).toBe(0)

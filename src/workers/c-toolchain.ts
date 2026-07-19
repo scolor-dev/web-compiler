@@ -71,6 +71,7 @@ async function compile(code: string, action: ExecutionAction) {
     '-Wall',
     '-Wextra',
     '-Wpedantic',
+    '-Wimplicit-fallthrough',
     '-Wno-unused-parameter',
   ]
   if (action === 'lint') args.push('-fsyntax-only')

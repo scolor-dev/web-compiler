@@ -6,6 +6,7 @@ export interface Diagnostic {
   message: string
   line: number
   column: number
+  suggestion?: string
 }
 
 export interface ExecuteRequest {

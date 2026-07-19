@@ -375,4 +375,19 @@ mod tests {
         let source = "   \t     \t\n\t\n  \n\n\n";
         assert_eq!(lint(source).exit_code, 0);
     }
+
+    #[test]
+    fn lint_examples_report_incomplete_instruction_and_duplicate_label() {
+        let incomplete = include_str!("../../../example/whitespace/error-incomplete-instruction.ws");
+        let duplicate = include_str!("../../../example/whitespace/error-duplicate-label.ws");
+        assert!(lint(incomplete).stderr.contains("命令が途中で終了しています"));
+        assert!(lint(duplicate).stderr.contains("ラベル `S` が重複しています"));
+    }
+
+    #[test]
+    fn semantic_subtraction_example_is_valid_but_produces_the_wrong_total() {
+        let source = include_str!("../../../example/whitespace/lint-limit-sub-instead-of-add.ws");
+        assert_eq!(lint(source).exit_code, 0);
+        assert_eq!(run(source, "").stdout, "2");
+    }
 }

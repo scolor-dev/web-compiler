@@ -24,4 +24,17 @@ int sum(int arr[], int n) {
   it('does not warn when all elements are processed', () => {
     expect(cSuggestions('int sum(int arr[], int n) { int total = 0; for (int i = 0; i < n; i++) total += arr[i]; return total; }')).toEqual([])
   })
+
+  it('checks the outer dimension of a nested array loop', () => {
+    const code = `
+int main(void) {
+  int matrix[2][3];
+  for (int row = 0; row < 1; row++) {
+    for (int column = 0; column < 3; column++) matrix[row][column] = 0;
+  }
+}`
+    expect(cSuggestions(code)).toContainEqual(expect.objectContaining({
+      message: expect.stringContaining('配列「matrix」には2件'),
+    }))
+  })
 })

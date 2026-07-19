@@ -18,7 +18,9 @@
 - 実行、停止、実行時間制限
 - 標準出力・標準エラー・終了状態の表示
 - 行・列付きのコンパイル／実行エラー表示
+- エラー内容に応じた改善案の表示
 - 意図とのずれが疑われる箇所を黄色で示すLint提案
+- Chrome Prompt API（Gemini Nano）のバックグラウンド事前初期化
 - 4言語対応の切り替え式ロジック解説表示
 - 4言語の分岐・ループ・ジャンプを可視化するフロー図
 - サンプルプログラム
@@ -35,6 +37,7 @@
 - Acorn + eslint-scope（JavaScript Lint）
 - Sucrase + React（JSX変換・静的HTMLレンダリング）
 - Web Worker（UIをブロックしない実行とタイムアウト制御）
+- Chrome Prompt API / Gemini Nano（対応環境でのみ任意に事前初期化）
 - Vitest（フロントエンド） / cargo test（Rust）
 
 ## アーキテクチャ
@@ -57,6 +60,8 @@ public/                # 静的アセット
 ```
 
 UIは実行エンジンを直接参照せず、型付きメッセージでWorkerと通信します。WorkerがCのコンパイル、WASI実行、JavaScript実行、Rust/WASMの初期化を担当し、メインスレッドはタイムアウト時にWorkerを破棄・再生成します。
+
+ChromeでPrompt APIが利用できる場合は、画面表示と並行して日本語・英語対応のGemini Nanoセッションを事前初期化します。モデルが端末にあれば即座に読み込み、初回ダウンロードが必要な場合はChromeの制約に従い、最初のクリックまたはキー入力後に開始します。非対応ブラウザではこの処理を静かにスキップします。
 
 ## 言語対応範囲
 
@@ -94,7 +99,7 @@ cargo test --manifest-path crates/compiler/Cargo.toml
 npm run build
 ```
 
-生成された `dist/` を任意の静的ホスティングへ配置します。実行時のAPIサーバー、CDNライブラリ、外部通信は不要です。
+生成された `dist/` を任意の静的ホスティングへ配置します。実行時のAPIサーバーやCDNライブラリは不要です。Chromeの端末内AIモデルが未導入の場合のみ、モデルの初回取得をChrome自身が管理します。
 
 ## セキュリティ方針
 
