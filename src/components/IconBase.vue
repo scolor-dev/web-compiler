@@ -1,4 +1,4 @@
-<script setup lang="ts">defineProps<{ name: 'play'|'stop'|'terminal'|'sun'|'moon'|'reset'|'chevron'|'check'|'error'|'code'|'input'|'lint'|'flow' }>()</script>
+<script setup lang="ts">defineProps<{ name: 'play'|'stop'|'terminal'|'sun'|'moon'|'reset'|'chevron'|'check'|'error'|'code'|'input'|'lint'|'flow'|'sparkles' }>()</script>
 <template>
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path v-if="name==='play'" d="m8 5 11 7-11 7V5Z" />
@@ -14,5 +14,6 @@
     <path v-else-if="name==='input'" d="M13 5h6v14h-6m-3-4 4-3-4-3m4 3H3" />
     <path v-else-if="name==='lint'" d="M9 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4M9 15l2 2 4-5m-2-9h8v8m0-8-9 9" />
     <path v-else-if="name==='flow'" d="M12 3v4m0 4v4m0 4v2M8 7h8v4H8V7Zm-3 8h6v4H5v-4Zm8 0h6v4h-6v-4Zm-1 0c0-2-1-3-3-4m3 4c0-2 1-3 3-4" />
+    <path v-else-if="name==='sparkles'" d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3ZM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Zm13-1 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z" />
   </svg>
 </template>

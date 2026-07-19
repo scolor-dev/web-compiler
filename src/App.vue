@@ -5,7 +5,7 @@ import FlowDiagram from './components/FlowDiagram.vue'
 import IconBase from './components/IconBase.vue'
 import { languageMap, languages } from './constants/languages'
 import { useExecution } from './composables/useExecution'
-import { preloadChromeBuiltInAi } from './services/chromeBuiltInAi'
+import { preloadChromeBuiltInAi, reviewCodeAgainstSpecification } from './services/chromeBuiltInAi'
 import type { LanguageId } from './types/execution'
 import { diagnosticSuggestion } from './utils/diagnosticSuggestions'
 import { buildFlowGraph } from './utils/flowGraph'
@@ -19,8 +19,11 @@ const systemDark = matchMedia('(prefers-color-scheme: dark)')
 const savedTheme = localStorage.getItem('local-code-studio:theme')
 const dark = ref(savedTheme ? savedTheme === 'dark' : systemDark.matches)
 const cursor = ref({ line: 1, column: 1 })
-const panel = ref<'output' | 'input' | 'console' | 'flow'>('output')
+const panel = ref<'output' | 'input' | 'console' | 'review' | 'flow'>('output')
 const logicVisible = reactive<Record<LanguageId, boolean>>({ c: false, javascript: false, react: false, whitespace: false })
+const specifications = reactive(Object.fromEntries(languages.map((item) => [item.id, localStorage.getItem(`local-code-studio:specification:${item.id}`) ?? ''])) as Record<LanguageId, string>)
+const aiReviews = reactive(Object.fromEntries(languages.map((item) => [item.id, { text: '', error: '' }])) as Record<LanguageId, { text: string, error: string }>)
+const aiReviewRunning = ref(false)
 const { running, result, activeAction, run, lint, stop } = useExecution()
 
 const current = computed(() => languageMap[language.value])
@@ -63,15 +66,30 @@ const whitespaceStats = computed(() => {
 })
 
 function executeCode() {
-  if (panel.value === 'input' || panel.value === 'flow') panel.value = 'output'
+  if (panel.value === 'input' || panel.value === 'review' || panel.value === 'flow') panel.value = 'output'
   run(language.value, code[language.value], stdin[language.value])
 }
 function lintCode() {
-  if (panel.value === 'input' || panel.value === 'flow') panel.value = 'output'
+  if (panel.value === 'input' || panel.value === 'review' || panel.value === 'flow') panel.value = 'output'
   lint(language.value, code[language.value])
 }
 function toggleLogic() { logicVisible[language.value] = !logicVisible[language.value] }
 function showFlow() { panel.value = 'flow' }
+async function reviewSpecification() {
+  const targetLanguage = language.value
+  const specification = specifications[targetLanguage].trim()
+  if (!specification || aiReviewRunning.value) return
+  aiReviewRunning.value = true
+  aiReviews[targetLanguage] = { text: '', error: '' }
+  try {
+    const text = await reviewCodeAgainstSpecification(current.value.label, specification, code[targetLanguage])
+    aiReviews[targetLanguage] = { text, error: '' }
+  } catch (error) {
+    aiReviews[targetLanguage] = { text: '', error: error instanceof Error ? error.message : String(error) }
+  } finally {
+    aiReviewRunning.value = false
+  }
+}
 function resetCode() {
   code[language.value] = current.value.sample
   stdin[language.value] = current.value.stdin
@@ -92,6 +110,7 @@ watch(language, (value) => localStorage.setItem('local-code-studio:language', va
 watch(dark, (value) => { document.documentElement.classList.toggle('dark', value); localStorage.setItem('local-code-studio:theme', value ? 'dark' : 'light') }, { immediate: true })
 watch(code, (value) => Object.entries(value).forEach(([id, source]) => localStorage.setItem(`local-code-studio:code:${id}`, source)), { deep: true })
 watch(stdin, (value) => Object.entries(value).forEach(([id, source]) => localStorage.setItem(`local-code-studio:stdin:${id}`, source)), { deep: true })
+watch(specifications, (value) => Object.entries(value).forEach(([id, specification]) => localStorage.setItem(`local-code-studio:specification:${id}`, specification)), { deep: true })
 onMounted(() => window.addEventListener('keydown', handleKeyboard))
 onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
 </script>
@@ -160,16 +179,42 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboard))
 
       <section class="flex min-h-[44dvh] min-w-0 flex-col bg-zinc-50/70 lg:min-h-0 dark:bg-[#0a0a0c]">
         <div class="flex h-14 shrink-0 items-end justify-between border-b border-zinc-200/80 px-4 dark:border-white/8">
-          <div class="flex h-full items-end gap-5">
+          <div class="flex min-w-0 h-full items-end gap-5 overflow-x-auto">
             <button type="button" class="panel-tab" :class="{ active: panel === 'output' }" @click="panel = 'output'"><IconBase name="terminal" class="size-4" />出力<span v-if="diagnostics.length" class="error-count" :class="{ warning: !hasDiagnosticErrors }">{{ diagnostics.length }}</span></button>
             <button type="button" class="panel-tab" :class="{ active: panel === 'input' }" @click="panel = 'input'"><IconBase name="input" class="size-4" />標準入力</button>
             <button type="button" class="panel-tab" :class="{ active: panel === 'console' }" @click="panel = 'console'"><IconBase name="code" class="size-4" />コンソール</button>
+            <button type="button" class="panel-tab" :class="{ active: panel === 'review' }" @click="panel = 'review'"><IconBase name="sparkles" class="size-4" />仕様レビュー</button>
             <button type="button" class="panel-tab" :class="{ active: panel === 'flow' }" @click="panel = 'flow'"><IconBase name="flow" class="size-4" />フロー図</button>
           </div>
           <span v-if="result?.durationMs !== undefined" class="mb-4 font-mono text-[10px] text-zinc-400">{{ result.durationMs.toFixed(1) }} ms</span>
         </div>
 
         <FlowDiagram v-if="panel === 'flow'" :graph="flowGraph" />
+
+        <div v-else-if="panel === 'review'" class="flex min-h-0 flex-1 flex-col overflow-auto p-4 sm:p-5">
+          <div class="mb-3">
+            <label for="specification" class="text-xs font-semibold text-zinc-700 dark:text-zinc-300">期待する仕様</label>
+            <p class="mt-1 text-[11px] leading-5 text-zinc-400">何を入力し、どのような計算・分岐・出力にしたいか具体的に記述してください。</p>
+          </div>
+          <textarea id="specification" v-model="specifications[language]" spellcheck="true" placeholder="例: 商品合計に送料を加算して請求額を表示する。負の金額は受け付けない。" class="terminal-surface min-h-40 shrink-0 resize-y p-4 text-sm leading-6 outline-none focus:ring-2 focus:ring-emerald-500/30" />
+          <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <p class="flex items-center gap-1.5 text-[10px] text-zinc-400"><IconBase name="sparkles" class="size-3.5" />仕様とコードはChromeの端末内AIで確認します</p>
+            <button type="button" class="ai-review-button" :disabled="!specifications[language].trim() || aiReviewRunning" @click="reviewSpecification">
+              <IconBase name="sparkles" class="size-4" />{{ aiReviewRunning ? '確認中...' : '仕様とコードを確認' }}
+            </button>
+          </div>
+          <div v-if="aiReviewRunning" class="mt-5 flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 p-4 text-xs text-violet-700 dark:border-violet-400/20 dark:bg-violet-400/[.06] dark:text-violet-300">
+            <span class="loader size-4 shrink-0 rounded-full border-2 border-violet-200 border-t-violet-600 dark:border-violet-900 dark:border-t-violet-300" />端末内AIが仕様とコードを確認しています...
+          </div>
+          <div v-else-if="aiReviews[language].error" class="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-6 text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/[.06] dark:text-rose-300">
+            <strong class="block">AIレビューを開始できませんでした</strong>{{ aiReviews[language].error }}
+          </div>
+          <div v-else-if="aiReviews[language].text" class="ai-review-result mt-5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-400/20 dark:bg-emerald-400/[.05]">
+            <p class="mb-3 flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300"><IconBase name="sparkles" class="size-4" />仕様レビュー結果</p>
+            <pre class="whitespace-pre-wrap font-sans text-xs leading-6 text-zinc-700 dark:text-zinc-300">{{ aiReviews[language].text }}</pre>
+          </div>
+          <p v-else class="mt-5 rounded-xl border border-dashed border-zinc-200 p-4 text-xs leading-5 text-zinc-400 dark:border-white/10">仕様を入力してボタンを押すと、現在の{{ current.label }}コードとの差分、懸念点、改善案を表示します。AIの判定は参考情報として、テスト結果とあわせて確認してください。</p>
+        </div>
 
         <div v-else-if="panel === 'input'" class="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
           <label for="stdin" class="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">プログラムへ渡す入力</label>

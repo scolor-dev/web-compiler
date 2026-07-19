@@ -70,4 +70,19 @@ describe('Chrome built-in AI preload', () => {
     expect(factory.create).toHaveBeenCalledOnce()
     expect(ai.getChromeBuiltInAiStatus()).toBe('ready')
   })
+
+  it('reviews code and specification in an isolated cloned session', async () => {
+    const reviewSession = { prompt: vi.fn().mockResolvedValue('結論: 懸念あり'), destroy: vi.fn() }
+    const warmedSession = { prompt: vi.fn(), clone: vi.fn().mockResolvedValue(reviewSession), destroy: vi.fn() }
+    vi.stubGlobal('LanguageModel', {
+      availability: vi.fn().mockResolvedValue('available'),
+      create: vi.fn().mockResolvedValue(warmedSession),
+    })
+    const ai = await import('./chromeBuiltInAi')
+
+    await expect(ai.reviewCodeAgainstSpecification('JavaScript', '合計に送料を足す', 'total - shipping')).resolves.toContain('懸念あり')
+    expect(reviewSession.prompt).toHaveBeenCalledWith(expect.stringMatching(/合計に送料を足す[\s\S]*total - shipping/))
+    expect(reviewSession.destroy).toHaveBeenCalledOnce()
+    expect(warmedSession.prompt).not.toHaveBeenCalled()
+  })
 })
