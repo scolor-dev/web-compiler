@@ -85,4 +85,22 @@ describe('Chrome built-in AI preload', () => {
     expect(reviewSession.destroy).toHaveBeenCalledOnce()
     expect(warmedSession.prompt).not.toHaveBeenCalled()
   })
+
+  it('converts invisible Whitespace source to an unambiguous S/T/L stream', async () => {
+    vi.stubGlobal('LanguageModel', undefined)
+    const ai = await import('./chromeBuiltInAi')
+
+    const visible = ai.formatSourceCodeForReview('Whitespace', ' \t\n')
+    expect(visible).toContain('S = ASCII Space')
+    expect(visible).toContain('全3トークン')
+    expect(visible).toContain('連続トークン列:\nSTL')
+    expect(ai.buildSpecificationReviewPrompt('Whitespace', '文字を表示する', ' \t\n')).toContain(visible)
+  })
+
+  it('keeps non-Whitespace source unchanged', async () => {
+    vi.stubGlobal('LanguageModel', undefined)
+    const ai = await import('./chromeBuiltInAi')
+
+    expect(ai.formatSourceCodeForReview('C', 'int main(void) {}')).toBe('int main(void) {}')
+  })
 })
